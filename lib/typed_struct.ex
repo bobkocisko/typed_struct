@@ -406,6 +406,7 @@ defmodule TypedStruct do
       Module.register_attribute(__MODULE__, :ts_types, accumulate: true)
       Module.register_attribute(__MODULE__, :ts_enforce_keys, accumulate: true)
       Module.put_attribute(__MODULE__, :ts_enforce?, unquote(!!opts[:enforce]))
+      Module.put_attribute(__MODULE__, :ts_type?, unquote(!opts[:no_type]))
 
       # Create a scope to avoid leaks.
       (fn ->
@@ -416,7 +417,9 @@ defmodule TypedStruct do
       @enforce_keys @ts_enforce_keys
       defstruct @ts_fields
 
-      TypedStruct.__type__(@ts_types, unquote(opts))
+      if unquote(!opts[:no_type]) do
+        TypedStruct.__type__(@ts_types, unquote(opts))
+      end
 
       Enum.each(@ts_plugins, fn {plugin, plugin_opts} ->
         if {:after_definition, 1} in plugin.__info__(:functions) do
@@ -424,9 +427,11 @@ defmodule TypedStruct do
         end
       end)
 
+      Module.delete_attribute(__MODULE__, :ts_type?)
       Module.delete_attribute(__MODULE__, :ts_enforce?)
       Module.delete_attribute(__MODULE__, :ts_enforce_keys)
       Module.delete_attribute(__MODULE__, :ts_types)
+      Module.delete_attribute(__MODULE__, :ts_fields)
       Module.delete_attribute(__MODULE__, :ts_plugins)
     end
   end
@@ -472,6 +477,8 @@ defmodule TypedStruct do
     end
   end
 
+  @no_type nil
+
   @doc """
   Defines a field in a typed struct.
 
@@ -480,13 +487,20 @@ defmodule TypedStruct do
       # A field named :example of type String.t()
       field :example, String.t()
 
+      # Or, if no_type: true is set
+      field :example
+
   ## Options
 
     * `default` - sets the default value for the field
     * `enforce` - if set to true, enforces the field and makes its type
       non-nullable
   """
-  defmacro field(name, type, opts \\ []) do
+  defmacro field(name), do: field_h(name, @no_type, [])
+  defmacro field(name, [{_,_} | _] = opts), do: field_h(name, @no_type, opts)
+  defmacro field(name, type), do: field_h(name, type, [])
+  defmacro field(name, type, opts), do: field_h(name, type, opts)
+  defp field_h(name, type, opts) do
     quote do
       TypedStruct.__field__(
         __MODULE__,
@@ -514,6 +528,16 @@ defmodule TypedStruct do
   def __field__(mod, name, type, opts) when is_atom(name) do
     if mod |> Module.get_attribute(:ts_fields) |> Keyword.has_key?(name) do
       raise ArgumentError, "the field #{inspect(name)} is already set"
+    end
+
+    if Module.get_attribute(mod, :ts_type?) do
+      if type == @no_type, do: raise ArgumentError,
+        "the field #{inspect(name)} is missing a type specifier, " <>
+        "or else you must specify no_type: true"
+    else
+      if type != @no_type, do: raise ArgumentError,
+        "the field #{inspect(name)} has a type specifier, " <>
+        "but no_type: true has been set"
     end
 
     has_default? = Keyword.has_key?(opts, :default)

@@ -29,6 +29,16 @@ defmodule TypedStructTest do
       end
     end
 
+  {:module, _name, bytecode_no_type, _exports} =
+    defmodule NoTypeTestStruct do
+      use TypedStruct
+
+      typedstruct no_type: true do
+        field :int
+        field :with_default, default: 5
+      end
+    end
+
   defmodule EnforcedTypedStruct do
     use TypedStruct
 
@@ -53,6 +63,7 @@ defmodule TypedStructTest do
 
   @bytecode bytecode
   @bytecode_opaque bytecode_opaque
+  @bytecode_no_type bytecode_no_type
 
   # Standard struct name used when comparing generated types.
   @standard_struct_name TypedStructTest.TestStruct
@@ -144,6 +155,21 @@ defmodule TypedStructTest do
       |> standardise(TypedStructTest.TestStruct3)
 
     assert type1 == type2
+  end
+
+  test "generates no type if `no_type: true` is set" do
+
+    type1 =
+      @bytecode_no_type
+      |> extract_first_type(:type)
+
+    assert type1 == nil
+
+    type2 =
+      @bytecode_no_type
+      |> extract_first_type(:opaque)
+
+    assert type2 == nil
   end
 
   test "generates the struct in a submodule if `module: ModuleName` is set" do
